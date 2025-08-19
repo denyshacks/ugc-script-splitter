@@ -10,16 +10,38 @@ export async function generateSegments(data) {
   });
   
   console.log('[API Client] Response status:', response.status);
+  console.log('[API Client] Response headers:', Object.fromEntries(response.headers.entries()));
   
   if (!response.ok) {
-    const error = await response.json();
-    console.error('[API Client] Error response:', error);
-    throw new Error(error.message || 'Failed to generate segments');
+    // Get response text first to see if it's HTML or JSON
+    const responseText = await response.text();
+    console.error('[API Client] Error response text:', responseText);
+    
+    try {
+      const error = JSON.parse(responseText);
+      throw new Error(error.message || 'Failed to generate segments');
+    } catch (parseError) {
+      // If it's not JSON, it's likely an HTML error page
+      console.error('[API Client] Response is not JSON, likely HTML error page');
+      if (responseText.includes('<!DOCTYPE')) {
+        throw new Error(`Server returned HTML error page instead of JSON. Status: ${response.status}. This usually indicates a server configuration issue or the API endpoint is not available.`);
+      }
+      throw new Error(`API Error (${response.status}): ${responseText.substring(0, 200)}...`);
+    }
   }
   
-  const result = await response.json();
-  console.log('[API Client] Success response:', result);
-  return result;
+  // Also check for successful responses that might not be JSON
+  const responseText = await response.text();
+  console.log('[API Client] Response text:', responseText.substring(0, 200));
+  
+  try {
+    const result = JSON.parse(responseText);
+    console.log('[API Client] Success response:', result);
+    return result;
+  } catch (parseError) {
+    console.error('[API Client] Failed to parse successful response as JSON:', parseError);
+    throw new Error('Server returned invalid JSON response. Check server logs for details.');
+  }
 }
 
 export async function downloadSegments(segments) {
@@ -85,15 +107,37 @@ export async function generateContinuation(data) {
   });
   
   console.log('[API Client] Response status:', response.status);
+  console.log('[API Client] Response headers:', Object.fromEntries(response.headers.entries()));
   
   if (!response.ok) {
-    const error = await response.json();
-    console.error('[API Client] Error response:', error);
-    throw new Error(error.message || 'Failed to generate continuation');
+    // Get response text first to see if it's HTML or JSON
+    const responseText = await response.text();
+    console.error('[API Client] Error response text:', responseText);
+    
+    try {
+      const error = JSON.parse(responseText);
+      throw new Error(error.message || 'Failed to generate continuation');
+    } catch (parseError) {
+      // If it's not JSON, it's likely an HTML error page
+      console.error('[API Client] Response is not JSON, likely HTML error page');
+      if (responseText.includes('<!DOCTYPE')) {
+        throw new Error(`Server returned HTML error page instead of JSON. Status: ${response.status}. This usually indicates a server configuration issue or the API endpoint is not available.`);
+      }
+      throw new Error(`API Error (${response.status}): ${responseText.substring(0, 200)}...`);
+    }
   }
   
-  const result = await response.json();
-  console.log('[API Client] Success response:', result);
-  return result;
+  // Also check for successful responses that might not be JSON
+  const responseText = await response.text();
+  console.log('[API Client] Response text:', responseText.substring(0, 200));
+  
+  try {
+    const result = JSON.parse(responseText);
+    console.log('[API Client] Success response:', result);
+    return result;
+  } catch (parseError) {
+    console.error('[API Client] Failed to parse successful response as JSON:', parseError);
+    throw new Error('Server returned invalid JSON response. Check server logs for details.');
+  }
 }
 

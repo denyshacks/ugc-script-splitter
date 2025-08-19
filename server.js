@@ -39,7 +39,35 @@ app.use(express.static(path.join(__dirname, 'build')));
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', timestamp: new Date() });
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date(),
+    env: {
+      NODE_ENV: process.env.NODE_ENV,
+      PORT: process.env.PORT,
+      hasOpenAI: !!process.env.OPENAI_API_KEY,
+      hasGemini: !!process.env.GOOGLE_GEMINI_API_KEY,
+      hasKieAI: !!process.env.KIEAI_API_KEY
+    }
+  });
+});
+
+// Debug endpoint to test API routes
+app.get('/api/debug', (req, res) => {
+  res.json({
+    message: 'API routes are working',
+    availableRoutes: [
+      '/api/health',
+      '/api/debug',
+      '/api/generate',
+      '/api/generate-continuation',
+      '/api/generate-plus',
+      '/api/generate-new-cont',
+      '/api/download',
+      '/api/generate-videos'
+    ],
+    timestamp: new Date()
+  });
 });
 
 // Catch all handler - send React app for any route not handled above

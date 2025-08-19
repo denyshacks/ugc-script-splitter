@@ -3,11 +3,40 @@ import openaiService from '../services/openaiService.js';
 
 const router = express.Router();
 
+// In-memory storage for background tasks (in production, use Redis or database)
+const backgroundTasks = new Map();
+
+// Background task processing
+async function processBackgroundTask(taskId, params) {
+  try {
+    console.log(`[Background] Processing task ${taskId}`);
+    const segment = await openaiService.generateContinuationSegment(params);
+    
+    backgroundTasks.set(taskId, {
+      status: 'completed',
+      result: { success: true, segment },
+      completedAt: new Date()
+    });
+    
+    console.log(`[Background] Task ${taskId} completed successfully`);
+  } catch (error) {
+    console.error(`[Background] Task ${taskId} failed:`, error);
+    
+    backgroundTasks.set(taskId, {
+      status: 'failed',
+      error: {
+        message: error.message,
+        type: error.message.includes('timed out') ? 'timeout' : 
+               error.message.includes('API key') ? 'auth' : 'unknown'
+      },
+      completedAt: new Date()
+    });
+  }
+}
+
+// Start background task
 router.post('/generate-continuation', async (req, res) => {
-  console.log('[API] /generate-continuation called');
-  
-  // Set a longer timeout for this endpoint
-  req.setTimeout(95000); // 95 seconds
+  console.log('[API] /generate-continuation called - using background processing');
   
   try {
     const { imageUrl, script, voiceProfile, previousSegment, maintainEnergy, product } = req.body;
@@ -27,51 +56,84 @@ router.post('/generate-continuation', async (req, res) => {
       });
     }
     
-    console.log('[API] Generating continuation for:', {
-      imageUrl,
-      scriptLength: script.length,
-      hasVoiceProfile: !!voiceProfile,
-      hasPreviousSegment: !!previousSegment,
-      product
+    // Generate unique task ID
+    const taskId = `task_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
+    // Store task as pending
+    backgroundTasks.set(taskId, {
+      status: 'processing',
+      startedAt: new Date(),
+      params: { imageUrl, script, voiceProfile, previousSegment, maintainEnergy, product }
     });
     
-    // Generate continuation segment with timeout handling
-    const segment = await openaiService.generateContinuationSegment({
-      imageUrl,
-      script,
-      voiceProfile,
-      previousSegment,
-      maintainEnergy,
-      product
-    });
+    // Start background processing (don't await)
+    processBackgroundTask(taskId, {
+      imageUrl, script, voiceProfile, previousSegment, maintainEnergy, product
+    }).catch(err => console.error('Background task error:', err));
     
-    console.log('[API] Continuation segment generated successfully');
+    console.log(`[API] Started background task ${taskId}`);
     
+    // Return immediately with task ID
     res.json({ 
       success: true,
-      segment
+      taskId,
+      status: 'processing',
+      message: 'Task started. Use the task ID to check status.',
+      checkStatusUrl: `/api/task-status/${taskId}`
     });
     
   } catch (error) {
     console.error('[API] Continuation generation error:', error);
+    res.status(500).json({ 
+      error: 'Failed to start continuation generation',
+      message: error.message 
+    });
+  }
+});
+
+// Check task status
+router.get('/task-status/:taskId', (req, res) => {
+  const { taskId } = req.params;
+  const task = backgroundTasks.get(taskId);
+  
+  if (!task) {
+    return res.status(404).json({
+      error: 'Task not found',
+      message: 'Invalid task ID or task expired'
+    });
+  }
+  
+  if (task.status === 'processing') {
+    return res.json({
+      status: 'processing',
+      message: 'Task is still processing. Please check again in a few seconds.',
+      startedAt: task.startedAt
+    });
+  }
+  
+  if (task.status === 'completed') {
+    // Clean up completed task after returning result
+    setTimeout(() => backgroundTasks.delete(taskId), 5000);
     
-    // Handle different types of errors
-    if (error.message.includes('timed out')) {
-      res.status(408).json({ 
-        error: 'Request timeout',
-        message: 'The AI service took too long to respond. Please try again with a shorter script or simpler request.' 
-      });
-    } else if (error.message.includes('API key')) {
-      res.status(401).json({
-        error: 'Authentication error',
-        message: 'Invalid or missing OpenAI API key'
-      });
-    } else {
-      res.status(500).json({ 
-        error: 'Failed to generate continuation',
-        message: error.message 
-      });
-    }
+    return res.json({
+      status: 'completed',
+      ...task.result,
+      completedAt: task.completedAt
+    });
+  }
+  
+  if (task.status === 'failed') {
+    // Clean up failed task after returning error
+    setTimeout(() => backgroundTasks.delete(taskId), 5000);
+    
+    return res.status(500).json({
+      status: 'failed',
+      error: task.error.type === 'timeout' ? 'Request timeout' :
+             task.error.type === 'auth' ? 'Authentication error' :
+             'Processing failed',
+      message: task.error.message,
+      completedAt: task.completedAt
+    });
   }
 });
 

@@ -96,8 +96,9 @@ export async function generateVideos(segments) {
 }
 
 export async function generateContinuation(data) {
-  console.log('[API Client] Calling /api/generate-continuation with:', data);
+  console.log('[API Client] Calling /api/generate-continuation with background processing:', data);
   
+  // Start the background task
   const response = await fetch('/api/generate-continuation', {
     method: 'POST',
     headers: {
@@ -107,10 +108,8 @@ export async function generateContinuation(data) {
   });
   
   console.log('[API Client] Response status:', response.status);
-  console.log('[API Client] Response headers:', Object.fromEntries(response.headers.entries()));
   
   if (!response.ok) {
-    // Get response text first to see if it's HTML or JSON
     const responseText = await response.text();
     console.error('[API Client] Error response text:', responseText);
     
@@ -118,7 +117,6 @@ export async function generateContinuation(data) {
       const error = JSON.parse(responseText);
       throw new Error(error.message || 'Failed to generate continuation');
     } catch (parseError) {
-      // If it's not JSON, it's likely an HTML error page
       console.error('[API Client] Response is not JSON, likely HTML error page');
       if (responseText.includes('<!DOCTYPE')) {
         throw new Error(`Server returned HTML error page instead of JSON. Status: ${response.status}. This usually indicates a server configuration issue or the API endpoint is not available.`);
@@ -127,17 +125,64 @@ export async function generateContinuation(data) {
     }
   }
   
-  // Also check for successful responses that might not be JSON
-  const responseText = await response.text();
-  console.log('[API Client] Response text:', responseText.substring(0, 200));
+  const taskResponse = await response.json();
+  console.log('[API Client] Task started:', taskResponse);
   
-  try {
-    const result = JSON.parse(responseText);
-    console.log('[API Client] Success response:', result);
-    return result;
-  } catch (parseError) {
-    console.error('[API Client] Failed to parse successful response as JSON:', parseError);
-    throw new Error('Server returned invalid JSON response. Check server logs for details.');
+  if (!taskResponse.success || !taskResponse.taskId) {
+    throw new Error('Failed to start background task');
   }
+  
+  // Poll for task completion
+  return await pollTaskStatus(taskResponse.taskId);
+}
+
+async function pollTaskStatus(taskId, maxAttempts = 60) {
+  console.log(`[API Client] Polling task status: ${taskId}`);
+  
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetch(`/api/task-status/${taskId}`);
+      
+      if (!response.ok) {
+        if (response.status === 404) {
+          throw new Error('Task not found or expired');
+        }
+        throw new Error(`Failed to check task status: ${response.status}`);
+      }
+      
+      const status = await response.json();
+      console.log(`[API Client] Task status (attempt ${attempt}):`, status.status);
+      
+      if (status.status === 'completed') {
+        console.log('[API Client] Task completed successfully:', status);
+        return status;
+      }
+      
+      if (status.status === 'failed') {
+        console.error('[API Client] Task failed:', status);
+        throw new Error(status.message || 'Task processing failed');
+      }
+      
+      if (status.status === 'processing') {
+        // Wait 3 seconds before next poll
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        continue;
+      }
+      
+      throw new Error(`Unknown task status: ${status.status}`);
+      
+    } catch (error) {
+      console.error(`[API Client] Error polling task (attempt ${attempt}):`, error);
+      
+      if (attempt === maxAttempts) {
+        throw new Error(`Task polling failed after ${maxAttempts} attempts: ${error.message}`);
+      }
+      
+      // Wait before retrying
+      await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+  }
+  
+  throw new Error('Task polling timed out after 3 minutes');
 }
 

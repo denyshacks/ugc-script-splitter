@@ -62,6 +62,7 @@ app.get('/api/debug', (req, res) => {
       '/api/test-continuation',
       '/api/generate',
       '/api/generate-continuation',
+      '/api/task-status/:taskId',
       '/api/generate-plus',
       '/api/generate-new-cont',
       '/api/download',

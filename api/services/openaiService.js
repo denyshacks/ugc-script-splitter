@@ -469,9 +469,9 @@ Return a JSON object with:
     const template = await fs.readFile(templatePath, 'utf8');
     
     try {
-      // Add timeout to prevent 524 errors
+      // Add timeout to prevent 524 errors - reduced to 60 seconds for faster response
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('OpenAI API call timed out after 90 seconds')), 90000);
+        setTimeout(() => reject(new Error('OpenAI API call timed out after 60 seconds')), 60000);
       });
       
       const apiPromise = this.openai.chat.completions.create({
@@ -501,7 +501,7 @@ Generate the JSON following the continuation minimal structure.`
         response_format: { type: "json_object" },
         temperature: 0.4,
         max_tokens: 3000,
-        timeout: 85000 // 85 second timeout
+        timeout: 55000 // 55 second timeout
       });
       
       const response = await Promise.race([apiPromise, timeoutPromise]);
